@@ -280,11 +280,25 @@ public:
      }
   };
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+class PositionItem
+  {
+public:
+   string            symbol; // 交易货币对
+   double            volume; // 成交量
+   ENUM_POSITION_TYPE direction; // 方向
+   long              time_msc; // 开仓时间毫秒
+   ulong ticket; // ticket
+  };
+
 // Symbol 信息类定义
 class SymbolInfo
   {
 public:
    double            ima[];  // 用于存储 iMA 指标数据的数组
+   PositionItem last_position; // 最近的一个订单
 
    // 构造函数
                      SymbolInfo()
@@ -325,4 +339,25 @@ public:
       ArraySetAsSeries(ima, true);  // 将数组设置为时间序列
       IndicatorRelease(handle);     // 释放句柄
      }
+
+   bool              GetLastPosition()
+     {
+
+      int total = PositionsTotal();
+      if(total > 0)
+        {
+         ulong ticket = PositionGetTicket(total-1);
+         if(ticket > 0)
+           {
+            last_position.ticket = PositionGetTicket(total-1);
+            last_position.symbol = PositionGetString(POSITION_SYMBOL);
+            last_position.volume = PositionGetDouble(POSITION_VOLUME);
+            last_position.direction = PositionGetInteger(POSITION_TYPE);
+            last_position.time_msc = PositionGetInteger(POSITION_TIME_MSC);
+            return true;
+           }
+        }
+      return false;
+     }
   };
+//+------------------------------------------------------------------+
