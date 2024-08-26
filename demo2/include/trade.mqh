@@ -288,26 +288,30 @@ class PositionItem
 public:
    string            symbol; // 交易货币对
    double            volume; // 成交量
+   double            price_open; // 开仓价格
    ENUM_POSITION_TYPE direction; // 方向
-   long              time_msc; // 开仓时间毫秒
+   long              time_msc; // 以毫秒计持仓时间
    ulong ticket; // ticket
   };
 
 // Symbol 信息类定义
 class SymbolInfo
-  {
+{
 public:
-   double            ima[];  // 用于存储 iMA 指标数据的数组
+   double ima[];  // 用于存储 iMA 指标数据的数组
    PositionItem last_position; // 最近的一个订单
 
    // 构造函数
-                     SymbolInfo()
-     {
-      ArrayResize(ima, 30);  // 调整数组大小为 30
-     }
+   SymbolInfo()
+   {
+
+   }
+   ~SymbolInfo() {
+      ArrayFree(ima);
+   }
 
    // 获取 iMA 指标数据的方法
-   void              ma(
+   void ma(
       string symbol,            // 交易品种名称
       ENUM_TIMEFRAMES period,   // 周期
       int ma_period,            // 平均周期
@@ -315,7 +319,7 @@ public:
       ENUM_MA_METHOD ma_method, // 平滑类型
       ENUM_APPLIED_PRICE applied_price // 价格或者处理程序类型
    )
-     {
+   {
       int handle;
 
       // 创建 iMA 指标的句柄
@@ -323,41 +327,47 @@ public:
 
       // 检查句柄是否有效
       if(handle < 0)
-        {
+      {
          Print("Error creating iMA handle: ", GetLastError());
          return;
-        }
+      }
 
       // 从 iMA 指标缓冲区复制数据
-      if(CopyBuffer(handle, 0, 0, 30, ima) <= 0)
-        {
-         Print("Error copying iMA buffer: ", GetLastError());
+      int copied = CopyBuffer(handle, 0, 0, 30, ima);
+      if(copied <= 0)
+      {
+         Print("Error copying iMA buffer: ", GetLastError(), ", copied: ", copied);
          IndicatorRelease(handle);  // 释放句柄
          return;
-        }
+      }
 
       ArraySetAsSeries(ima, true);  // 将数组设置为时间序列
       IndicatorRelease(handle);     // 释放句柄
-     }
+   }
 
-   bool              GetLastPosition()
-     {
-
+   bool GetLastPosition()
+   {
       int total = PositionsTotal();
       if(total > 0)
-        {
+      {
          ulong ticket = PositionGetTicket(total-1);
          if(ticket > 0)
-           {
+         {
             last_position.ticket = PositionGetTicket(total-1);
             last_position.symbol = PositionGetString(POSITION_SYMBOL);
             last_position.volume = PositionGetDouble(POSITION_VOLUME);
+            last_position.price_open = PositionGetDouble(POSITION_PRICE_OPEN);
             last_position.direction = PositionGetInteger(POSITION_TYPE);
-            last_position.time_msc = PositionGetInteger(POSITION_TIME_MSC);
+            last_position.time_msc = PositionGetInteger(POSITION_TIME_MSC); // 以毫秒计持仓时间
             return true;
-           }
-        }
+         }
+      }
       return false;
-     }
-  };
+   }
+};
+
 //+------------------------------------------------------------------+
+
+long MinutesToMilliseconds(int minutes) {
+    return minutes * 60 * 1000;  // 1 分钟 = 60 * 1000 毫秒
+}
