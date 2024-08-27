@@ -1,10 +1,10 @@
 mod conversion;
+
 use std::os::windows::ffi::OsStringExt;
 use std::sync::{mpsc, Arc, Mutex, Once};
 use std::thread;
 use csv::Writer;
 use serde::Serialize;
-use ureq;
 use lazy_static::lazy_static;
 
 #[derive(Debug, Serialize, Clone)]
@@ -25,7 +25,7 @@ lazy_static! {
     });
 
     // 使用 `sync_channel` 并将容量设置为 5000
-    static ref CHANNEL: (mpsc::SyncSender<LogData>, Arc<Mutex<mpsc::Receiver<LogData>>>) = {
+ static ref CHANNEL: (mpsc::SyncSender<LogData>, Arc<Mutex<mpsc::Receiver<LogData>>>) = {
         let (tx, rx) = mpsc::sync_channel(5000);
         (tx, Arc::new(Mutex::new(rx)))
     };
@@ -33,6 +33,7 @@ lazy_static! {
 
 static INIT: Once = Once::new();
 
+#[derive(Debug, Serialize, Clone)]
 struct PigItem {
     key: String,
     volume: f64,
@@ -48,70 +49,9 @@ pub extern "system" fn rs_log(
     profit: f64,
     time: i64,
 ) {
-    // 使用 `Once` 确保以下代码只执行一次
     INIT.call_once(|| {
-        let rx = Arc::clone(&CHANNEL.1);
-        // 创建一个 CSV writer
-        let mut wtr = Writer::from_path("output.csv").unwrap();
-        thread::spawn(move || {
-            loop {
-                let message = {
-                    let rx = rx.lock().unwrap();
-                    rx.recv()
-                };
-
-                match message {
-                    Ok(message) => {
-                       // write csv
-                        wtr.serialize(message).unwrap();
-                        wtr.flush().unwrap();
-                    }
-                    Err(_) => {
-                        println!("Consumer : Channel closed");
-                        break;
-                    }
-                }
-            }
-        });
-
-        // 创建5个消费者线程
-        // for i in 1..=5 {
-        //     let rx = Arc::clone(&CHANNEL.1);
-        //     thread::spawn(move || {
-        //         loop {
-        //             let message = {
-        //                 let rx = rx.lock().unwrap();
-        //                 rx.recv()
-        //             };
-        //
-        //             match message {
-        //                 Ok(message) => {
-        //                     // Send the POST request with the JSON data
-        //                     let response = ureq::post("http://127.0.0.1:8181/statistics")
-        //                         .set("Content-Type", "application/json")
-        //                         .send_string(&message);
-        //
-        //                     // Handle the response
-        //                     match response {
-        //                         Ok(resp) => {
-        //                             match resp.into_string() {
-        //                                 Ok(body) => println!("Consumer {}: Response: {}", i, body),
-        //                                 Err(e) => println!("Consumer {}: Failed to read response: {}", i, e),
-        //                             }
-        //                         }
-        //                         Err(e) => {
-        //                             println!("Consumer {}: Failed to send request: {}", i, e);
-        //                         }
-        //                     }
-        //                 }
-        //                 Err(_) => {
-        //                     println!("Consumer {}: Channel closed", i);
-        //                     break;
-        //                 }
-        //             }
-        //         }
-        //     });
-        // }
+        start_csv_writer_thread();
+        // start_http_consumer_threads(5); // 创建5个HTTP消费者线程
     });
 
     // 使用转换函数将 version 指针转换为 String
@@ -123,7 +63,6 @@ pub extern "system" fn rs_log(
         }
     };
 
-    // 创建日志数据结构
     let log_data = LogData {
         version,
         order_total,
@@ -133,10 +72,8 @@ pub extern "system" fn rs_log(
     };
 
     let mut update_db = false;
-    // 更新全局数据
     {
         let mut global_data = GLOBAL_DATA.lock().unwrap();
-
         let key = format!("{}-{}", order_total, volume);
         if global_data.key != key {
             global_data.key = key;
@@ -144,29 +81,92 @@ pub extern "system" fn rs_log(
             global_data.profit = profit;
             global_data.total += 1;
             update_db = true;
-        }else{
-            if (profit - global_data.profit).abs() > 5.00 {
-                update_db = true;
-            }
+        } else if (profit - global_data.profit).abs() > 5.00 {
+            update_db = true;
         }
-
     }
 
     if update_db {
-        // 将结构序列化为 JSON
-        if CHANNEL.0.send(log_data).is_err() {
-            eprintln!("Failed to send data to the channel.");
+        if let Err(e) = CHANNEL.0.send(log_data) {
+            eprintln!("Failed to send data to the channel: {}", e);
         }
-        // match serde_json::to_string(&log_data) {
-        //     Ok(json_data) => {
-        //     if CHANNEL.0.send(json_data).is_err() {
-        //         eprintln!("Failed to send data to the channel.");
-        //     }
-        //     }
-        //     Err(e) => {
-        //         eprintln!("Failed to serialize log data: {}", e);
-        //     }
-        // }
     }
 }
 
+
+fn start_csv_writer_thread() {
+    let rx = Arc::clone(&CHANNEL.1);
+    thread::spawn(move || {
+        let mut wtr = Writer::from_path("output.csv").unwrap();
+        loop {
+            let log_data = {
+                let rx = rx.lock().unwrap();
+                rx.recv()
+            };
+            match log_data {
+                Ok(data) => {
+                    if wtr.serialize(&data).is_err() {
+                        eprintln!("Failed to write log data to CSV");
+                    }
+                    if wtr.flush().is_err() {
+                        eprintln!("Failed to flush CSV writer");
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+// fn start_http_consumer_threads(thread_count: usize) {
+//     for i in 1..=thread_count {
+//         let rx = Arc::clone(&CHANNEL.1);
+//         thread::spawn(move || {
+//             loop {
+//                 let log_data = {
+//                     let rx = rx.lock().unwrap();
+//                     rx.recv()
+//                 };
+//                 match log_data {
+//                     Ok(data) => {
+//                         if let Err(e) = send_http_request(&data) {
+//                             eprintln!("Consumer {}: Failed to send HTTP request: {}", i, e);
+//                         }
+//                     }
+//                     Err(_) => break,
+//                 }
+//             }
+//         });
+//     }
+// }
+//
+// fn send_http_request(log_data: &LogData) -> Result<(), Box<dyn std::error::Error>> {
+//     let response = ureq::post("http://127.0.0.1:8181/statistics")
+//         .set("Content-Type", "application/json")
+//         .send_json(serde_json::to_value(log_data)?)?;
+//
+//     if response.status() != 200 {
+//         Err(format!("HTTP request failed with status: {}", response.status()).into())
+//     } else {
+//         println!("Successfully sent log data: {:?}", log_data);
+//         Ok(())
+//     }
+// }
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+    use super::*;
+
+    #[test]
+    fn test_conversion() {
+        // 模拟调用 rs_log 函数
+        // let version = OsStringExt::from_wide(&['V' as u16, '1' as u16, '2' as u16, '3' as u16, 0u16])
+        //     .as_ptr() as *mut crate::rs_log;
+        // let version = OsString::from("V123");
+        // rs_log(version, 10, 100.0, 200.0, 123456789);
+
+        // 让主线程等待一段时间，以确保消费者处理消息
+        // thread::sleep(std::time::Duration::from_secs(5));
+    }
+}
