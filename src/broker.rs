@@ -38,6 +38,8 @@ struct KLine {
 
 impl Broker {
     fn new(strategy: Box<dyn Strategy>) -> Self {
+
+
         Self {
             strategy
         }
