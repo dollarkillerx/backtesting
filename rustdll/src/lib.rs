@@ -1,172 +1,102 @@
 mod conversion;
 
-use std::os::windows::ffi::OsStringExt;
-use std::sync::{mpsc, Arc, Mutex, Once};
-use std::thread;
-use csv::Writer;
+use std::cmp::PartialEq;
+use std::sync::Mutex;
 use serde::Serialize;
 use lazy_static::lazy_static;
 
-#[derive(Debug, Serialize, Clone)]
-struct LogData {
-    version: String,
-    order_total: i64,
-    volume: f64,
-    profit: f64,
-    time: i64,
-}
-
 lazy_static! {
-    static ref GLOBAL_DATA: Mutex<PigItem> = Mutex::new(PigItem {
-        key: "".to_string(),
-        volume: 0.0,
-        profit: 0.0,
-        total: 0
-    });
-
-    // 使用 `sync_channel` 并将容量设置为 5000
- static ref CHANNEL: (mpsc::SyncSender<LogData>, Arc<Mutex<mpsc::Receiver<LogData>>>) = {
-        let (tx, rx) = mpsc::sync_channel(5000);
-        (tx, Arc::new(Mutex::new(rx)))
-    };
+    static ref GLOBAL_DATA: Mutex<Vec<Order>> = Mutex::new(Vec::new());
+    static ref GLOBAL_HIGH: Mutex<f64> = Mutex::new(0.0);
 }
 
-static INIT: Once = Once::new();
+#[derive(PartialEq)]
+enum PositionType {
+    Buy,
+    Sell,
+}
 
-#[derive(Debug, Serialize, Clone)]
-struct PigItem {
-    key: String,
+struct Order {
+    price: f64,
     volume: f64,
-    profit: f64,
-    total: i64,
+    order_type: PositionType,
 }
 
 #[no_mangle]
-pub extern "system" fn rs_log(
-    version: *mut u16,
-    order_total: i64,
-    volume: f64,
-    profit: f64,
-    time: i64,
-) {
-    INIT.call_once(|| {
-        start_csv_writer_thread();
-        // start_http_consumer_threads(5); // 创建5个HTTP消费者线程
-    });
-
-    // 使用转换函数将 version 指针转换为 String
-    let version = match conversion::wide_ptr_to_string(version) {
-        Some(ver) => ver,
-        None => {
-            eprintln!("Failed to convert version from wide string.");
-            return;
-        }
-    };
-
-    let log_data = LogData {
-        version,
-        order_total,
+pub extern "system" fn buy(price: f64, volume: f64) {
+    GLOBAL_DATA.lock().unwrap().push(Order {
+        price,
         volume,
-        profit,
-        time,
-    };
-
-    let mut update_db = false;
-    {
-        let mut global_data = GLOBAL_DATA.lock().unwrap();
-        let key = format!("{}-{}", order_total, volume);
-        if global_data.key != key {
-            global_data.key = key;
-            global_data.volume = volume;
-            global_data.profit = profit;
-            global_data.total += 1;
-            update_db = true;
-        } else if (profit - global_data.profit).abs() > 5.00 {
-            update_db = true;
-        }
-    }
-
-    if update_db {
-        if let Err(e) = CHANNEL.0.send(log_data) {
-            eprintln!("Failed to send data to the channel: {}", e);
-        }
-    }
+        order_type: PositionType::Buy
+    });
 }
 
+#[no_mangle]
+pub extern "system" fn sell(price: f64, volume: f64) {
+    GLOBAL_DATA.lock().unwrap().push(Order {
+        price,
+        volume,
+        order_type: PositionType::Sell
+    });
+}
 
-fn start_csv_writer_thread() {
-    let rx = Arc::clone(&CHANNEL.1);
-    thread::spawn(move || {
-        let mut wtr = Writer::from_path("output.csv").unwrap();
-        loop {
-            let log_data = {
-                let rx = rx.lock().unwrap();
-                rx.recv()
-            };
-            match log_data {
-                Ok(data) => {
-                    if wtr.serialize(&data).is_err() {
-                        eprintln!("Failed to write log data to CSV");
-                    }
-                    if wtr.flush().is_err() {
-                        eprintln!("Failed to flush CSV writer");
-                    }
+#[no_mangle]
+pub extern "system" fn ok_close(ask_price: f64, bid_price: f64, sink: f64, sink1: f64, sink2: f64) -> bool {
+    // 统计所有订单当前盈亏
+    let mut profit = 0.0;
+
+    {
+        let orders = GLOBAL_DATA.lock().unwrap();
+        for order in orders.iter() {
+            match order.order_type {
+                PositionType::Buy => {
+                    profit += (bid_price - order.price) * order.volume;
                 }
-                Err(_) => break,
+                PositionType::Sell => {
+                    profit += (order.price - ask_price) * order.volume;
+                }
             }
         }
-    });
-}
+    }
 
-// fn start_http_consumer_threads(thread_count: usize) {
-//     for i in 1..=thread_count {
-//         let rx = Arc::clone(&CHANNEL.1);
-//         thread::spawn(move || {
-//             loop {
-//                 let log_data = {
-//                     let rx = rx.lock().unwrap();
-//                     rx.recv()
-//                 };
-//                 match log_data {
-//                     Ok(data) => {
-//                         if let Err(e) = send_http_request(&data) {
-//                             eprintln!("Consumer {}: Failed to send HTTP request: {}", i, e);
-//                         }
-//                     }
-//                     Err(_) => break,
-//                 }
-//             }
-//         });
-//     }
-// }
-//
-// fn send_http_request(log_data: &LogData) -> Result<(), Box<dyn std::error::Error>> {
-//     let response = ureq::post("http://127.0.0.1:8181/statistics")
-//         .set("Content-Type", "application/json")
-//         .send_json(serde_json::to_value(log_data)?)?;
-//
-//     if response.status() != 200 {
-//         Err(format!("HTTP request failed with status: {}", response.status()).into())
-//     } else {
-//         println!("Successfully sent log data: {:?}", log_data);
-//         Ok(())
-//     }
-// }
+    let mut high_value = {
+        let mut high = GLOBAL_HIGH.lock().unwrap();
+        if profit > *high {
+            *high = profit;
+        }
+        *high
+    };
+
+    if high_value > 2.00 {
+        if (high_value - profit >= sink) ||
+            (high_value > 80.00 && profit <= sink2) ||
+            (high_value > 40.00 && profit <= sink1) {
+            let mut high = GLOBAL_HIGH.lock().unwrap();
+            *high = 0.00;
+
+            let mut orders = GLOBAL_DATA.lock().unwrap();
+            orders.clear();
+
+            return true;
+        }
+    }
+
+    false
+}
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
     use super::*;
 
     #[test]
-    fn test_conversion() {
-        // 模拟调用 rs_log 函数
-        // let version = OsStringExt::from_wide(&['V' as u16, '1' as u16, '2' as u16, '3' as u16, 0u16])
-        //     .as_ptr() as *mut crate::rs_log;
-        // let version = OsString::from("V123");
-        // rs_log(version, 10, 100.0, 200.0, 123456789);
+    fn test_buy_sell_close() {
+        buy(100.0, 1.0);
+        sell(105.0, 1.0);
 
-        // 让主线程等待一段时间，以确保消费者处理消息
-        // thread::sleep(std::time::Duration::from_secs(5));
+        // let closed = close(104.0, 2.0, 1.0, 0.5);
+        // assert!(closed == false);
+        //
+        // let closed = close(103.0, 2.0, 1.0, 0.5);
+        // assert!(closed == true);
     }
 }
