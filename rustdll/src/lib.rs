@@ -24,6 +24,16 @@ fn get_latest_order() -> Option<Order> {
     orders.first().cloned() // 获取第一个元素，克隆到返回值中
 }
 
+fn remove_order_by_id(order_id: i64) -> bool {
+    let mut orders = GLOBAL_DATA.lock().unwrap();
+    if let Some(pos) = orders.iter().position(|order| order.id == order_id) {
+        orders.remove(pos);
+        true
+    } else {
+        false
+    }
+}
+
 // 生成一个唯一的随机数
 fn generate_unique_random_number(max_value: i64) -> i64 {
     let mut rng = rand::thread_rng();
@@ -188,10 +198,33 @@ pub extern "system" fn auto_close(ask_price: f64, bid_price: f64) -> i64 {
     for order in orders.iter() {
         match order.order_type {
             PositionType::Buy => {
-
+                if order.sl != 0.0 {
+                    if order.sl >= bid_price {
+                        // close order
+                        remove_order_by_id(order.id);
+                        return order.id;
+                    }
+                }
+                if order.tp != 0.0 {
+                    if order.tp <= bid_price {
+                        remove_order_by_id(order.id);
+                        return order.id;
+                    }
+                }
             }
             PositionType::Sell => {
-
+                if order.sl != 0.0 {
+                    if order.sl <= ask_price {
+                        remove_order_by_id(order.id);
+                        return order.id;
+                    }
+                }
+                if order.tp != 0.0 {
+                    if order.tp >= ask_price {
+                        remove_order_by_id(order.id);
+                        return order.id;
+                    }
+                }
             }
         }
     }
