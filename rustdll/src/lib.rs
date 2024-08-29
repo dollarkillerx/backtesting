@@ -70,7 +70,7 @@ struct Order {
 }
 
 #[no_mangle]  // is_buy 1 买 0 卖
-pub extern "system" fn initial_order(price: f64,init_volume: f64, is_buy: i64, time: i64) -> i64{
+pub extern "system" fn initial_order(price: f64, init_volume: f64, is_buy: i64, time: i64) -> i64 {
     // 返回id
     // 清cache
     let mut orders = GLOBAL_DATA.lock().unwrap();
@@ -93,7 +93,7 @@ pub extern "system" fn initial_order(price: f64,init_volume: f64, is_buy: i64, t
 
 // 加仓
 #[no_mangle]  // 如果加则放回 id 如果不加则返回 0   interval_time分
-pub extern "system" fn add_order(ask_price: f64, bid_price: f64, time: i64,step: f64,interval_time: i64,initial_vol: f64 ) -> i64 {
+pub extern "system" fn add_order(ask_price: f64, bid_price: f64, time: i64, step: f64, interval_time: i64, initial_vol: f64) -> i64 {
     // 1. 获取上一个订单的基础信息
     let order = get_latest_order().unwrap();
 
@@ -141,9 +141,10 @@ pub extern "system" fn add_order(ask_price: f64, bid_price: f64, time: i64,step:
                     sl: ask_price + 0.0001 * 15.0,
                     tp: 0.0,
                     order_type: PositionType::Buy,
-                }});
+                }
+            });
         }
-    }else{
+    } else {
         {
             let mut orders = GLOBAL_DATA.lock().unwrap();
             orders.push({
@@ -152,10 +153,11 @@ pub extern "system" fn add_order(ask_price: f64, bid_price: f64, time: i64,step:
                     price: bid_price,
                     time,
                     volume: new_vol,
-                    sl:bid_price + 0.0001 * 15.0,
+                    sl: bid_price + 0.0001 * 15.0,
                     tp: 0.0,
                     order_type: PositionType::Sell,
-                }});
+                }
+            });
         }
     }
 
@@ -163,7 +165,7 @@ pub extern "system" fn add_order(ask_price: f64, bid_price: f64, time: i64,step:
 }
 
 #[no_mangle]
-pub extern  "system" fn get_order_position_type(id: i64) -> i64 {
+pub extern "system" fn get_order_position_type(id: i64) -> i64 {
     // 1: buy 0: sell
     let orders = GLOBAL_DATA.lock().unwrap();
     for order in orders.iter() {
@@ -177,7 +179,7 @@ pub extern  "system" fn get_order_position_type(id: i64) -> i64 {
 }
 
 #[no_mangle]
-pub extern  "system" fn get_order_volume(id: i64) -> f64 {
+pub extern "system" fn get_order_volume(id: i64) -> f64 {
     // 1: buy 0: sell
     let orders = GLOBAL_DATA.lock().unwrap();
     for order in orders.iter() {
@@ -234,19 +236,56 @@ pub extern "system" fn auto_close(ask_price: f64, bid_price: f64) -> i64 {
 
 
 #[no_mangle]
-pub extern "system" fn close_all(ask_price: f64, bid_price: f64, sink: f64, sink1: f64, sink2: f64) -> bool {
-    // 统计所有订单当前盈亏
-    let mut profit = 0.0;
-
+pub extern "system" fn close_all(ask_price: f64, bid_price: f64, time: i64, sink: f64, sink1: f64, sink2: f64) -> bool {
+    let mut total = 0;
     {
         let orders = GLOBAL_DATA.lock().unwrap();
+        total = orders.len();
+        if orders.len() == 0 {
+            return false;
+        }
+    }
+
+    // 统计所有订单当前盈亏
+    let mut profit = 0.0;
+    let mut profitable_quantity = 0;  // 盈利数量
+    let mut last_time = 0; // 最后一次盈利的时间
+    {
+        let mut orders = GLOBAL_DATA.lock().unwrap();
+        orders.sort_by(|a, b| b.time.cmp(&a.time)); // 按时间倒序排序
+        let orders = orders.first().cloned(); // 获取第一个元素，克隆到返回值中
         for order in orders.iter() {
             match order.order_type {
                 PositionType::Buy => {
                     profit += (bid_price - order.price) * order.volume;
+                    if (bid_price - order.price) * order.volume > 1.0 {
+                        profitable_quantity += 1;
+                    }
                 }
                 PositionType::Sell => {
                     profit += (order.price - ask_price) * order.volume;
+                    if (order.price - ask_price) * order.volume > 1.0 {
+                        profitable_quantity += 1;
+                    }
+                }
+            }
+        }
+        last_time = orders.unwrap().time;
+    }
+
+    // 如果都盈利 且时间超过1h 就关闭订单
+    {
+        let orders = GLOBAL_DATA.lock().unwrap();
+        if profitable_quantity == total {
+            if profit > 1.00 && orders.len() > 0 {
+                if time - last_time > 60 * 60 {
+                    let mut high = GLOBAL_HIGH.lock().unwrap();
+                    *high = 0.00;
+
+                    let mut orders = GLOBAL_DATA.lock().unwrap();
+                    orders.clear();
+
+                    return true;
                 }
             }
         }
