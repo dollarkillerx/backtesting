@@ -2,11 +2,10 @@
 
 好了感觉还是要自己写 基于rust的外汇回测框架
 
-- Broker
-  - Data
-  - Position  // 当前持仓
-  - Order     // history order
-
+- tick server
+- broker server
+  - position 管理
+  - order 管理
 
 - 单货币 多周期回测
 ### 三方依赖
