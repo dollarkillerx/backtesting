@@ -20,21 +20,41 @@ struct Order {
     time: i64,
 }
 
-#[derive(Deserialize,Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 struct OrderResponse {
     order_id: i64,
 }
 
-#[derive(Deserialize,Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 struct OrderTypeResponse {
     position_type: i64,
 }
 
-#[derive(Deserialize,Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 struct OrderVolumeResponse {
     volume: f64,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+struct MarkPrice {
+    ask: f64,
+    bid: f64,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+struct CloseAllPayload {
+    ask: f64,
+    bid: f64,
+    time: i64,
+    sink: f64,
+    sink1: f64,
+    sink2: f64,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+struct CloseAllResponse {
+    close_all: bool,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 struct AddOrderPayload {
@@ -148,143 +168,64 @@ pub extern "system" fn get_order_volume(id: i64) -> f64 {
 pub extern "system" fn auto_close(ask: f64, bid: f64) -> i64 {
     // 查看有没有止损或者止盈的订单
     // 如果有就平掉
-    let orders ;
+    let payload = MarkPrice {
+        ask,
+        bid,
+    };
+
+    match ureq::post(&format!("{URL}/auto_close"))
+        .set("Content-Type", "application/json")
+        .send_json(serde_json::to_value(payload).unwrap())
     {
-        let ord = GLOBAL_DATA.lock().unwrap();
-        orders = ord.clone();
-    }
-    for order in orders.iter() {
-        match order.order_type {
-            PositionType::Buy => {
-                if order.sl != 0.0 {
-                    if order.sl >= bid_price {
-                        remove_order_by_id(order.id);
-                        return order.id;
-                    }
-                }
-                if order.tp != 0.0 {
-                    if order.tp <= bid_price {
-                        remove_order_by_id(order.id);
-                        return order.id;
-                    }
-                }
-            }
-            PositionType::Sell => {
-                if order.sl != 0.0 {
-                    if order.sl <= ask_price {
-                        remove_order_by_id(order.id);
-                        return order.id;
-                    }
-                }
-                if order.tp != 0.0 {
-                    if order.tp >= ask_price {
-                        remove_order_by_id(order.id);
-                        return order.id;
-                    }
-                }
+        Ok(response) => {
+            if let Ok(order_response) = response.into_json::<OrderResponse>() {
+                order_response.order_id
+            } else {
+                -1 // JSON parsing error
             }
         }
+        Err(_) => -1 // Network error or server error
     }
-
-    0
 }
 
 
 #[no_mangle]
-pub extern "system" fn close_all(ask_price: f64, bid_price: f64, time: i64, sink: f64, sink1: f64, sink2: f64) -> bool {
-    let mut total = 0;
-    {
-        let orders = GLOBAL_DATA.lock().unwrap();
-        total = orders.len();
-        if orders.len() == 0 {
-            return false;
-        }
-    }
-
-    // 统计所有订单当前盈亏
-    let mut profit = 0.0;
-    let mut profitable_quantity = 0;  // 盈利数量
-    let mut last_time = 0; // 最后一次盈利的时间
-    {
-        let mut orders = GLOBAL_DATA.lock().unwrap();
-        orders.sort_by(|a, b| b.time.cmp(&a.time)); // 按时间倒序排序
-        let orders = orders.first().cloned(); // 获取第一个元素，克隆到返回值中
-        for order in orders.iter() {
-            match order.order_type {
-                PositionType::Buy => {
-                    profit += (bid_price - order.price) * order.volume;
-                    if (bid_price - order.price) * order.volume > 1.0 {
-                        profitable_quantity += 1;
-                    }
-                }
-                PositionType::Sell => {
-                    profit += (order.price - ask_price) * order.volume;
-                    if (order.price - ask_price) * order.volume > 1.0 {
-                        profitable_quantity += 1;
-                    }
-                }
-            }
-        }
-        last_time = orders.unwrap().time;
-    }
-
-    // 如果都盈利 且时间超过1h 就关闭订单
-    {
-        let orders = GLOBAL_DATA.lock().unwrap();
-        if profitable_quantity == total {
-            if profit > 1.00 && orders.len() > 0 {
-                if time - last_time > 60 * 60 {
-                    let mut high = GLOBAL_HIGH.lock().unwrap();
-                    *high = 0.00;
-
-                    let mut orders = GLOBAL_DATA.lock().unwrap();
-                    orders.clear();
-
-                    return true;
-                }
-            }
-        }
-    }
-
-    let mut high_value = {
-        let mut high = GLOBAL_HIGH.lock().unwrap();
-        if profit > *high {
-            *high = profit;
-        }
-        *high
+pub extern "system" fn close_all(ask: f64, bid: f64, time: i64, sink: f64, sink1: f64, sink2: f64) -> bool {
+    let payload = CloseAllPayload {
+        ask,
+        bid,
+        time,
+        sink,
+        sink1,
+        sink2,
     };
 
-    if high_value > 2.00 {
-        if (high_value - profit >= sink) ||
-            (high_value > 80.00 && profit <= sink2) ||
-            (high_value > 40.00 && profit <= sink1) {
-            let mut high = GLOBAL_HIGH.lock().unwrap();
-            *high = 0.00;
-
-            let mut orders = GLOBAL_DATA.lock().unwrap();
-            orders.clear();
-
-            return true;
+    match ureq::post(&format!("{URL}/close_all"))
+        .set("Content-Type", "application/json")
+        .send_json(serde_json::to_value(payload).unwrap())
+    {
+        Ok(response) => {
+            if let Ok(order_response) = response.into_json::<CloseAllResponse>() {
+                order_response.close_all
+            } else {
+                false // JSON parsing error
+            }
         }
+        Err(_) => false // Network error or server error
     }
-
-    false
 }
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]
     fn test_get_latest_order() {
-        let id = initial_order(10.00,0.01,1,1724912590);
+        let id = initial_order(10.00, 0.01, 1, 1724912590);
         println!("order id: {}", id);
 
-        let p = add_order(20.5,20.2,1724962599,10.00,10,0.01);
+        let p = add_order(20.5, 20.2, 1724962599, 10.00, 10, 0.01);
         println!("order id2: {}", p);
-
-
     }
 }
 

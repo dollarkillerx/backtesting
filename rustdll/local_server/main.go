@@ -68,7 +68,17 @@ type AutoClosePayload struct {
 	Bid float64 `json:"bid"`
 }
 
+type CloseAllPayload struct {
+	Ask   float64 `json:"ask"`
+	Bid   float64 `json:"bid"`
+	Time  int64   `json:"time"`
+	Sink  float64 `json:"sink"`
+	Sink1 float64 `json:"sink1"`
+	Sink2 float64 `json:"sink2"`
+}
+
 var orders = make([]Order, 0)
+var high = 0.00
 var mu sync.Mutex
 
 // 获取最新的订单
@@ -269,10 +279,129 @@ func main() {
 
 		mu.Lock()
 		defer mu.Unlock()
+		for i := 0; i < len(orders); i++ {
+			order := orders[i]
+
+			// Check for buy orders
+			if order.OrderType == 1 {
+				if order.Sl != 0 {
+					if order.Sl >= payload.Bid {
+						c.JSON(200, OrderResponse{
+							OrderId: order.Id,
+						})
+						orders = append(orders[:i], orders[i+1:]...)
+						return
+					}
+				}
+				if order.Tp != 0 {
+					if order.Tp <= payload.Bid {
+						c.JSON(200, OrderResponse{
+							OrderId: order.Id,
+						})
+						orders = append(orders[:i], orders[i+1:]...)
+						return
+					}
+				}
+				return
+			}
+
+			// Check for sell orders
+			if order.OrderType == 0 {
+				if order.Sl != 0 {
+					if order.Sl <= payload.Ask {
+						c.JSON(200, OrderResponse{
+							OrderId: order.Id,
+						})
+						orders = append(orders[:i], orders[i+1:]...)
+						return
+					}
+				}
+				if order.Tp != 0 {
+					if order.Tp >= payload.Ask {
+						c.JSON(200, OrderResponse{
+							OrderId: order.Id,
+						})
+						orders = append(orders[:i], orders[i+1:]...)
+						return
+					}
+				}
+				return
+			}
+		}
+		c.JSON(200, OrderResponse{
+			OrderId: int64(0),
+		})
 	})
 
 	engine.POST("/close_all", func(c *gin.Context) {
+		var payload CloseAllPayload
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(400, gin.H{
+				"message": "invalid payload",
+			})
+			return
+		}
 
+		mu.Lock()
+		defer mu.Unlock()
+
+		// 统计所有订单当前盈利
+		totalProfit := 0.0                 // 总盈利
+		totalOrder := 0                    // 总订单
+		profitable_quantity := 0           // 盈利订单数量
+		last_time := getLatestOrder().Time // 最后一笔订单时间
+
+		for i := 0; i < len(orders); i++ {
+			order := orders[i]
+			totalOrder++
+			switch order.OrderType {
+			case 1: // buy
+				totalProfit = totalProfit + (payload.Bid-order.Price)*order.Volume
+				if (payload.Bid-order.Price)*order.Volume > 1 {
+					profitable_quantity++
+				}
+			case 0: // sell
+				totalProfit = totalProfit + (order.Price-payload.Ask)*order.Volume
+				if (order.Price-payload.Ask)*order.Volume > 1 {
+					profitable_quantity++
+				}
+			}
+		}
+
+		// 如果都盈利且时间超过1h，清空所有订单
+		if totalOrder == profitable_quantity {
+			if totalProfit > 1 && totalOrder > 0 {
+				if payload.Time-last_time > 60*60 {
+					// 清空所有订单
+					high = 0
+					orders = make([]Order, 0)
+					c.JSON(200, gin.H{
+						"close_all": true,
+					})
+				}
+			}
+		}
+
+		if totalProfit > high {
+			high = totalProfit
+		}
+
+		if high > 2 {
+			if (high-totalProfit >= payload.Sink) ||
+				(high > 80 && totalProfit <= payload.Sink2) ||
+				(high > 40 && totalProfit <= payload.Sink1) {
+				// 清空所有订单
+				high = 0
+				orders = make([]Order, 0)
+				c.JSON(200, gin.H{
+					"close_all": true,
+				})
+			}
+		}
+
+		c.JSON(200, gin.H{
+			"close_all": false,
+		})
 	})
 
 	engine.GET("/test/:key", func(c *gin.Context) {
