@@ -9,14 +9,11 @@ use ureq;
 // 加仓
 // 出场
 
-#[derive(Serialize, Debug, Clone)]
-struct Order {
-    id: i64,
+#[derive(Deserialize, Serialize, Debug, Clone)]
+struct InitialOrderPayload {
     price: f64,
-    volume: f64,
-    sl: f64, // 止损
-    tp: f64, // 止盈
-    order_type: i64, // 1: buy 0: sell
+    init_volume: f64,
+    is_buy: i64, // 止损
     time: i64,
 }
 
@@ -70,14 +67,11 @@ const URL: &str = "http://127.0.0.1:8181";
 
 #[no_mangle]
 pub extern "system" fn initial_order(price: f64, init_volume: f64, is_buy: i64, time: i64) -> i64 {
-    let order = Order {
-        id: 0,
+    let order = InitialOrderPayload {
         price,
         time,
-        volume: init_volume,
-        sl: 0.0,
-        tp: 0.0,
-        order_type: is_buy,
+        init_volume,
+        is_buy,
     };
 
     match ureq::post(&format!("{URL}/initial_order"))
@@ -95,6 +89,11 @@ pub extern "system" fn initial_order(price: f64, init_volume: f64, is_buy: i64, 
     }
 }
 
+#[no_mangle]
+pub extern "system" fn my_version() -> i64 {
+    1
+}
+
 // 加仓
 #[no_mangle]  // 如果加则放回 id 如果不加则返回 0   interval_time分
 pub extern "system" fn add_order(ask: f64, bid: f64, time: i64, step: f64, interval_time: i64, initial_volume: f64) -> i64 {
@@ -103,7 +102,7 @@ pub extern "system" fn add_order(ask: f64, bid: f64, time: i64, step: f64, inter
         bid,
         time,
         step,
-        interval_time,
+        interval_time: 10,
         initial_volume,
     };
 
@@ -133,6 +132,7 @@ pub extern "system" fn get_order_position_type(id: i64) -> i64 {
         .send_json(serde_json::to_value(payload).unwrap())
     {
         Ok(response) => {
+
             if let Ok(order_response) = response.into_json::<OrderTypeResponse>() {
                 order_response.position_type
             } else {
@@ -173,19 +173,51 @@ pub extern "system" fn auto_close(ask: f64, bid: f64) -> i64 {
         bid,
     };
 
-    match ureq::post(&format!("{URL}/auto_close"))
+    let result = match ureq::post(&format!("{URL}/auto_close"))
         .set("Content-Type", "application/json")
-        .send_json(serde_json::to_value(payload).unwrap())
+        .send_json(serde_json::to_value(payload).unwrap_or_default())
     {
         Ok(response) => {
-            if let Ok(order_response) = response.into_json::<OrderResponse>() {
-                order_response.order_id
-            } else {
-                -1 // JSON parsing error
+            // 将响应转换为字符串
+            let raw_response = match response.into_string() {
+                Ok(s) => s,
+                Err(_) => {
+                    if let Err(e) = ureq::get(&format!("{URL}/test/Failed to read response as string")).call() {
+                        eprintln!("Failed to send test request: {}", e);
+                    }
+                    eprintln!("Failed to read response as string");
+                    return -1;
+                }
+            };
+
+            // 尝试解析 JSON
+            match serde_json::from_str::<OrderResponse>(&raw_response) {
+                Ok(order_response) => order_response.order_id,
+                Err(e) => {
+                    // 如果 JSON 解析失败，打印原始响应内容
+                    eprintln!("JSON parsing error: {}. Raw response: {}", e, raw_response);
+                    if let Err(e) = ureq::get(&format!("{URL}/test/json")).call() {
+                        eprintln!("Failed to send test request: {}", e);
+                    }
+                    -1 // JSON parsing error
+                }
             }
         }
-        Err(_) => -1 // Network error or server error
+        Err(e) => {
+            eprintln!("Request error: {}", e);
+            if let Err(e) = ureq::get(&format!("{URL}/test/er{}", e)).call() {
+                eprintln!("Failed to send test request: {}", e);
+            }
+            -1 // Network error or server error
+        }
+    };
+
+    if result == -1 {
+        if let Err(e) = ureq::get(&format!("{URL}/test/what-1")).call() {
+            eprintln!("Failed to send test request: {}", e);
+        }
     }
+    result
 }
 
 
@@ -226,6 +258,21 @@ mod tests {
 
         let p = add_order(20.5, 20.2, 1724962599, 10.00, 10, 0.01);
         println!("order id2: {}", p);
+
+        let px = get_order_position_type(p);
+        println!("position type: {}", px);
+
+        let p = get_order_volume(p);
+        println!("order volume: {}", p);
+
+        let p = auto_close(20.5, 20.2);
+        println!("auto_close: {}", p);
+
+        let p = auto_close(20.5, 20.2);
+        println!("auto_close: {}", p);
+
+        let p = auto_close(20.5, 20.2);
+        println!("auto_close: {}", p);
     }
 }
 
