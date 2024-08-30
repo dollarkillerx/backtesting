@@ -1,5 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+enum PERIOD {
+    PeriodM5,
+    PeriodM15,
+    PeriodM30,
+    PeriodH1,
+    PeriodH4,
+    PeriodD1,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tick {
     pub symbol: String, // 货币对名称

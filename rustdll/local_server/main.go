@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -110,7 +111,9 @@ func findOrderById(id int64) *Order {
 }
 
 func main() {
-	//engine := gin.Default()
+
+	numCPU := runtime.NumCPU()
+	runtime.GOMAXPROCS(numCPU) //engine := gin.Default()
 	engine := gin.New()
 
 	engine.POST("/initial_order", func(c *gin.Context) {
@@ -167,11 +170,8 @@ func main() {
 		mu.Lock()
 		defer mu.Unlock()
 
-		fmt.Println("total", len(orders))
-
 		latestOrder := getLatestOrder()
 		if latestOrder == nil {
-			log.Println("????????????????")
 			c.JSON(200, OrderResponse{
 				OrderId: int64(0),
 			})
@@ -363,6 +363,7 @@ func main() {
 		c.JSON(200, OrderResponse{
 			OrderId: int64(0),
 		})
+
 	})
 
 	engine.POST("/close_all", func(c *gin.Context) {
@@ -445,6 +446,12 @@ func main() {
 		c.JSON(200, gin.H{
 			"close_all": false,
 		})
+	})
+
+	engine.GET("/my_data", func(c *gin.Context) {
+		mu.Lock()
+		defer mu.Unlock()
+		c.JSON(200, orders)
 	})
 
 	engine.GET("/test/:key", func(c *gin.Context) {
