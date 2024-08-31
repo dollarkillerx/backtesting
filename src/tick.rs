@@ -126,7 +126,13 @@ impl TickManager {
             // send 开盘 -> 最低 -> 最高 -> 收盘
             let ticks = generate_ticks_from_kline("EURUSD", kline, 5);
             ticks.iter().for_each(|tick| {
-                self.tick_channel.as_ref().unwrap().send(tick.clone()).unwrap();
+                match self.tick_channel.as_ref().unwrap().send(tick.clone()) {
+                    Ok(_) => {},
+                    Err(e) => {
+                        println!("tick send error: {}", e);
+                        return;
+                    }
+                };
             });
         });
 

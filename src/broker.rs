@@ -15,6 +15,8 @@ pub struct Broker {
     profit: f64, // 盈亏
     margin: f64, // 保证金
 
+    close: bool, // 关闭交易
+
     // 统计数据使用到的channel
     state_log_channel: SyncSender<StateLog>,
     history_order: SyncSender<Positions>,
@@ -32,6 +34,8 @@ impl Broker {
             lever,
             profit: 0.0,
             margin: 0.0,
+
+            close: false,
 
             state_log_channel,
             history_order,
@@ -79,13 +83,25 @@ impl Broker {
             PositionsType::Buy => self.ask,
             PositionsType::Sell => self.bid,
         };
-        let sl = match position_type {
-            PositionsType::Buy => self.bid - 0.0001 * sl,
-            PositionsType::Sell => self.ask + 0.0001 * sl,
+
+        // 如果 sl == 0，直接设置为 0，否则根据计算设置
+        let sl = if sl == 0.0 {
+            0.0
+        } else {
+            match position_type {
+                PositionsType::Buy => self.bid - 0.0001 * sl,
+                PositionsType::Sell => self.ask + 0.0001 * sl,
+            }
         };
-        let tp = match position_type {
-            PositionsType::Buy => self.bid + 0.0001 * tp,
-            PositionsType::Sell => self.ask - 0.0001 * tp,
+
+        // 如果 tp == 0，直接设置为 0，否则根据计算设置
+        let tp = if tp == 0.0 {
+            0.0
+        } else {
+            match position_type {
+                PositionsType::Buy => self.bid + 0.0001 * tp,
+                PositionsType::Sell => self.ask - 0.0001 * tp,
+            }
         };
 
         let positions = Positions {
@@ -109,7 +125,6 @@ impl Broker {
 
         // 插入订单
         self.positions.push(positions);
-        println!("Orders: {:?}", self.positions);
 
         Ok(id)
     }
@@ -226,6 +241,14 @@ impl Broker {
 
         // 将平仓的订单加入历史订单中
         self.history.extend(closed_positions);
+
+        if self.profit < 0.0 {
+            if self.profit.abs() > self.balance - 20.0 {
+                self.balance = 0.0;
+                self.close_all();
+                println!("爆仓");
+            }
+        }
     }
 
     // 平仓指定订单
@@ -308,6 +331,17 @@ impl Broker {
             sorted_positions.sort_by_key(|pos| std::cmp::Reverse(pos.open_time)); // 按时间倒序排列
             Some(sorted_positions)
         }
+    }
+
+
+    // 关闭回测
+    pub fn close_broker(&mut self) {
+        self.close = true;
+    }
+
+    // 是否自动关闭
+    pub fn get_close_broker(&self) -> bool {
+        self.close
     }
 }
 

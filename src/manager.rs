@@ -39,7 +39,7 @@ impl Manager {
     pub fn backtesting(&mut self) {
         println!("Starting backtesting...");
         while let Ok(tick) = self.tick_channel.recv() {
-            if self.broker.get_balance() <= 0.0 {
+            if self.broker.get_balance() <= 0.0 || self.broker.get_close_broker() {
                 break;
             }
             self.broker.on_tick(tick.clone());
@@ -49,5 +49,6 @@ impl Manager {
         // 交易结束
         println!("Finished backtesting.");
         println!("Final balance: {}", self.broker.get_balance());
+        println!("Final profit: {}", self.broker.get_profit());
     }
 }

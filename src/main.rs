@@ -13,7 +13,7 @@ mod manager;
 mod statistics;
 
 fn main() {
-    let mut manager = Manager::new(10000.0, 100, "EURUSDc_M15.csv".to_string(), Box::new(DefaultStrategy{}));
+    let mut manager = Manager::new(10000.0, 500, "EURUSDc_M15.csv".to_string(), Box::new(DefaultStrategy{}));
 
     manager.backtesting();
 }
