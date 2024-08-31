@@ -1,13 +1,14 @@
+use crate::broker::Broker;
 use crate::tick::Tick;
 
-trait Strategy {
-    fn on_tick(&self, tick: Tick);
+pub trait Strategy {
+    fn on_tick(&self, tick: Tick, broker: &mut Broker);
 }
 
-struct DefaultStrategy {}
+pub struct DefaultStrategy {}
 
 impl Strategy for DefaultStrategy {
-    fn on_tick(&self, tick: Tick) {
-        println!("on_tick: {:?}", tick);
+    fn on_tick(&self, tick: Tick, broker: &mut Broker) {
+        println!("DefaultStrategy on_tick: {:?}", tick);
     }
 }

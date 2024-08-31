@@ -2,10 +2,13 @@
 
 好了感觉还是要自己写 基于rust的外汇回测框架
 
-- tick server
-- broker server
-  - position 管理
-  - order 管理
+```
+struct Manager {
+    broker: Mutex<Broker>, // Broker                         经纪商模块 
+    tick_channel: Mutex<Receiver<Tick>>, // TickManager      tick行情模块
+    strategy: Box<dyn Strategy>, // Strategy                 策略模块
+}
+```
 
 - 单货币 多周期回测
 ### 三方依赖

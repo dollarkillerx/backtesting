@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io;
-use std::io::{BufRead, BufReader};
-use std::sync::mpsc::Sender;
+use std::io::{BufRead};
+use std::sync::mpsc::{SyncSender};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -79,8 +79,8 @@ fn generate_ticks_from_kline(symbol: &str, kline: &KLine, steps: usize) -> Vec<T
 
 
 pub struct TickManager {
-    pub k_lines: Vec<KLine>,
-    pub tick_channel: Option<Sender<Tick>>
+    k_lines: Vec<KLine>,
+    tick_channel: Option<SyncSender<Tick>>
 }
 
 impl TickManager {
@@ -112,22 +112,29 @@ impl TickManager {
         }
     }
 
-    pub fn set_tick_channel(&mut self, channel: Sender<Tick> ) {
+    pub fn set_tick_channel(&mut self, channel: SyncSender<Tick> ) {
         self.tick_channel = Some(channel);
     }
 
-    pub fn generate_tick(&self)  {
+    pub fn run(&mut self)  {
         if self.k_lines.is_empty() || self.tick_channel.is_none() {
             return;
         }
 
+        println!("{}: {} lines of kline data", "TickManager", self.k_lines.len());
         self.k_lines.iter().for_each(|kline| {
             // send 开盘 -> 最低 -> 最高 -> 收盘
-            let ticks = generate_ticks_from_kline("EURUSD", kline, 10);
+            let ticks = generate_ticks_from_kline("EURUSD", kline, 5);
             ticks.iter().for_each(|tick| {
                 self.tick_channel.as_ref().unwrap().send(tick.clone()).unwrap();
             });
         });
+
+        // 清空 k_lines
+        self.k_lines.clear();
+
+        // 关闭通道
+        self.tick_channel = None;
     }
 }
 
