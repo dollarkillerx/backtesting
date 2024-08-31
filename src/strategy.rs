@@ -11,7 +11,7 @@ pub struct DefaultStrategy {}
 impl Strategy for DefaultStrategy {
     fn on_tick(&self, tick: Tick, broker: &mut Broker) {
         if broker.get_position_num() <= 5 {
-            match broker.buy("EURUSD".to_string(), 0.05, 10.0,10.0, "Test Buy".to_string()) {
+            match broker.sell("EURUSD".to_string(), 0.05, 10.0,10.0, "Test Buy".to_string()) {
                 Ok(id) => {
                     println!("buy id: {}", id);
                 }

@@ -207,7 +207,7 @@ mod tests {
             spread: 15,
         };
 
-        let ticks = generate_ticks_from_kline("EURUSD", &kline, 3);
+        let ticks = generate_ticks_from_kline("EURUSD", &kline, 10);
 
         println!("{}",  ticks.len());
         println!("{}", json!(ticks).to_string());
