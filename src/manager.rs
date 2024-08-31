@@ -35,5 +35,9 @@ impl Manager {
             self.broker.on_tick(tick.clone());
             self.strategy.on_tick(tick, &mut self.broker);
         }
+
+        // 交易结束
+        println!("Finished backtesting.");
+
     }
 }

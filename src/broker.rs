@@ -198,7 +198,6 @@ impl Broker {
         self.history.extend(closed_positions);
     }
 
-
     // 平仓指定订单
     pub fn close_position(&mut self, id: u64) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(index) = self.positions.iter().position(|pos| pos.id == id && pos.close_time == 0) {
