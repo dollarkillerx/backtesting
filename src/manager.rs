@@ -50,5 +50,8 @@ impl Manager {
         println!("Finished backtesting.");
         println!("Final balance: {}", self.broker.get_balance());
         println!("Final profit: {}", self.broker.get_profit());
+
+        // 绘制图表
+        StatisticsServer::generate_chart().unwrap();
     }
 }

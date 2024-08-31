@@ -59,7 +59,7 @@ impl Broker {
             balance: self.balance,
         };
 
-        self.state_log_channel.send(state_log).unwrap();
+        self.state_log_channel.send(state_log);
     }
 
     // 开单

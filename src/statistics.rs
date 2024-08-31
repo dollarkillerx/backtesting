@@ -1,6 +1,7 @@
+use std::fs::File;
 use std::sync::mpsc::Receiver;
 use std::thread;
-use csv::Writer;
+use csv::{ReaderBuilder, Writer};
 use plotters::prelude::*;
 use serde::{Deserialize, Serialize};
 use crate::positions::Positions;
@@ -58,63 +59,73 @@ impl StatisticsServer {
         // 初始状态
         let mut previous_log: Option<StateLog> = None;
         let threshold = 10.0; // 盈亏变化的阈值
-        let mut logs: Vec<StateLog> = Vec::new(); // 用于保存所有 StateLog 数据
-
         for log in state_log_channel.iter() {
             if let Some(ref prev_log) = previous_log {
                 if (log.profit - prev_log.profit).abs() >= threshold {
                     // 盈亏变化超过阈值，存储日志
                     wtr.serialize(&log).unwrap();
-                    logs.push(log.clone()); // 保存到日志向量中
                     previous_log = Some(log);
                 }
             } else {
                 // 第一个日志，直接存储
                 wtr.serialize(&log).unwrap();
-                logs.push(log.clone()); // 保存到日志向量中
                 previous_log = Some(log);
             }
         }
 
         // 刷新并关闭 writer
         wtr.flush().unwrap();
-
-        // 所有日志写入完成后生成图表
-        Self::generate_chart(&logs).unwrap();
     }
 
-    fn generate_chart(logs: &[StateLog]) -> Result<(), Box<dyn std::error::Error>> {
+    // 修改为读取"state_log.csv" 文件生成图片
+    pub fn generate_chart() -> Result<(), Box<dyn std::error::Error>> {
+        // 打开 CSV 文件
+        let file = File::open("state_log.csv")?;
+        let mut rdr = ReaderBuilder::new().from_reader(file);
+
+        // 读取 CSV 文件并解析为 StateLog 向量
+        let mut logs: Vec<StateLog> = Vec::new();
+        for result in rdr.deserialize() {
+            let record: StateLog = result?;
+            logs.push(record);
+        }
+
+        // 检查是否有数据
+        if logs.is_empty() {
+            return Err("No data available in state_log.csv".into());
+        }
+
         // 创建一个图表区域，指定输出文件和图表尺寸
         let root = BitMapBackend::new("profit_balance_chart.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE)?;
 
         // 生成一个图表
         let mut chart = ChartBuilder::on(&root)
-            .caption("Profit and Balance over Time", ("sans-serif", 50).into_font())
+            .caption("Balance and Profit + Balance over Time", ("sans-serif", 50).into_font())
             .margin(10)
             .x_label_area_size(30)
             .y_label_area_size(30)
             .build_cartesian_2d(
                 logs.first().unwrap().time..logs.last().unwrap().time, // X轴时间范围
-                -100.0..1200.0, // Y轴范围，可以根据你的数据调整
+                0.0..(logs.iter().map(|log| log.balance + log.profit).fold(f64::MIN, f64::max)), // 动态 Y 轴范围
             )?;
 
         // 绘制网格
         chart.configure_mesh().draw()?;
 
-        // 绘制 profit 线
-        chart.draw_series(LineSeries::new(
-            logs.iter().map(|log| (log.time, log.profit)),
-            &RED,
-        ))?.label("Profit")
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
-
-        // 绘制 balance 线
+        // 绘制 Balance 线
         chart.draw_series(LineSeries::new(
             logs.iter().map(|log| (log.time, log.balance)),
             &BLUE,
         ))?.label("Balance")
             .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
+
+        // 绘制 Profit + Balance 线
+        chart.draw_series(LineSeries::new(
+            logs.iter().map(|log| (log.time, log.profit + log.balance)),
+            &RED,
+        ))?.label("Profit")
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
 
         // 添加图例
         chart.configure_series_labels().border_style(&BLACK).draw()?;
