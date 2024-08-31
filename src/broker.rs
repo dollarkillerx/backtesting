@@ -47,6 +47,25 @@ impl Broker {
         self.bid = tick.bid;
         self.time = tick.time;
 
+
+        let mut profit = 0.0;
+        // 重新计算每个 Position 的盈亏
+        for position in &mut self.positions {
+            let current_price = match position.position_type {
+                PositionsType::Buy => self.bid,
+                PositionsType::Sell => self.ask,
+            };
+
+            position.profit = match position.position_type {
+                PositionsType::Buy => (current_price - position.open_price) * position.volume * 100000.0,
+                PositionsType::Sell => (position.open_price - current_price) * position.volume * 100000.0,
+            };
+
+            profit += position.profit;
+        }
+
+        self.profit = profit;
+
         // 自动平仓逻辑
         self.auto_close();
 
