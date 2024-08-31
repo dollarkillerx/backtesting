@@ -1,5 +1,7 @@
+use std::sync::mpsc::SyncSender;
 use crate::error::BrokerError;
 use crate::positions::{Positions, PositionsType};
+use crate::statistics::StateLog;
 use crate::utils::generate_unique_id;
 
 pub struct Broker {
@@ -12,10 +14,14 @@ pub struct Broker {
     lever: u64, // 杠杆倍数
     profit: f64, // 盈亏
     margin: f64, // 保证金
+
+    // 统计数据使用到的channel
+    state_log_channel: SyncSender<StateLog>,
+    history_order: SyncSender<Positions>,
 }
 
 impl Broker {
-    pub fn new(balance: f64, lever: u64) -> Self {
+    pub fn new(balance: f64, lever: u64, state_log_channel: SyncSender<StateLog>, history_order: SyncSender<Positions>) -> Self {
         Broker {
             ask: 0.0,
             bid: 0.0,
@@ -26,6 +32,9 @@ impl Broker {
             lever,
             profit: 0.0,
             margin: 0.0,
+
+            state_log_channel,
+            history_order,
         }
     }
 
@@ -36,6 +45,17 @@ impl Broker {
 
         // 自动平仓逻辑
         self.auto_close();
+
+        // send state log
+        let state_log = StateLog {
+            positions_total: self.positions.len() as u64,
+            volume_total: self.positions.iter().map(|p| p.volume).sum(),
+            time: self.time,
+            profit: self.profit,
+            balance: self.balance,
+        };
+
+        self.state_log_channel.send(state_log).unwrap();
     }
 
     // 开单
@@ -149,6 +169,11 @@ impl Broker {
         // 移除已平仓的订单
         self.positions.retain(|pos| pos.close_time == 0);
 
+        // send history channel
+        closed_positions.iter().for_each(|pos| {
+            let _ = self.history_order.send(pos.clone());
+        });
+
         // 将平仓的订单加入历史订单中
         self.history.extend(closed_positions);
     }
@@ -193,6 +218,11 @@ impl Broker {
 
         // 移除已平仓的订单
         self.positions.retain(|pos| pos.close_time == 0);
+
+        // send history channel
+        closed_positions.iter().for_each(|pos| {
+            let _ = self.history_order.send(pos.clone());
+        });
 
         // 将平仓的订单加入历史订单中
         self.history.extend(closed_positions);

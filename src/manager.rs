@@ -2,6 +2,7 @@ use std::sync::{mpsc};
 use crate::broker::Broker;
 use crate::tick::{Tick, TickManager};
 use std::sync::mpsc::{Receiver};
+use crate::statistics::StatisticsServer;
 use crate::strategy::Strategy;
 
 pub struct Manager {
@@ -16,13 +17,19 @@ impl Manager {
         let mut tick_manager = TickManager::new(kline_csv_path);
         tick_manager.set_tick_channel(tx);
 
-        // 开启一个线程
+        // tick_manager线程
         std::thread::spawn(move || {
             tick_manager.run();
         });
 
+        // statistics_server线程
+        let (state_log_channel_tx, state_log_channel_rx) = mpsc::sync_channel(5000);
+        let (history_order_tx, history_order_rx) = mpsc::sync_channel(5000);
+        let mut statistics_server = StatisticsServer::new(state_log_channel_rx, history_order_rx);
+        statistics_server.run();
+
         Manager {
-            broker: Broker::new(balance, lever),
+            broker: Broker::new(balance, lever,state_log_channel_tx, history_order_tx),
             tick_channel: rx,
             strategy,
         }
@@ -32,12 +39,15 @@ impl Manager {
     pub fn backtesting(&mut self) {
         println!("Starting backtesting...");
         while let Ok(tick) = self.tick_channel.recv() {
+            if self.broker.get_balance() <= 0.0 {
+                break;
+            }
             self.broker.on_tick(tick.clone());
             self.strategy.on_tick(tick, &mut self.broker);
         }
 
         // 交易结束
         println!("Finished backtesting.");
-
+        println!("Final balance: {}", self.broker.get_balance());
     }
 }
