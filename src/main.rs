@@ -17,7 +17,7 @@ mod statistics;
 
 fn main() {
     let mut manager = Manager::new(10000.0, 500,
-                                   "EURUSDc_M15.csv".to_string(),
+                                   "EURUSDc_M5.csv".to_string(),
                                    Box::new(Ea1Strategy::new(10, 0.01, 15)));
 
     manager.backtesting();
@@ -99,9 +99,9 @@ impl Strategy for Ea1Strategy {
             let mut rng = rand::thread_rng();
             let random_number: u8 = rng.gen_range(0..=1);
             if random_number == 0 {
-                broker.buy("EURUSD".to_string(), self.initial_volume, 0.0, 15.0, "".to_string());
+                broker.buy("EURUSD".to_string(), self.initial_volume, 0.0, 15.0, "".to_string()).unwrap();
             } else {
-                broker.sell("EURUSD".to_string(), self.initial_volume, 0.0, 15.0, "".to_string());
+                broker.sell("EURUSD".to_string(), self.initial_volume, 0.0, 15.0, "".to_string()).unwrap();
             }
             return;
         }
@@ -121,14 +121,18 @@ impl Strategy for Ea1Strategy {
             return;
         }
 
+
         // 亏损加仓
         let new_volume = last_position.volume + self.initial_volume;
+
+        println!("ok------------------------------ {} {}", new_volume,last_position.volume);
+
         match last_position.position_type {
             PositionsType::Buy => {
-                broker.buy("EURUSD".to_string(), new_volume * 10.0, 15.0, 0.0, "".to_string());
+                broker.buy("EURUSD".to_string(), new_volume * 10.0, 15.0, 0.0, "".to_string()).unwrap();
             }
             PositionsType::Sell => {
-                broker.sell("EURUSD".to_string(), new_volume * 10.0, 15.0, 0.0, "".to_string());
+                broker.sell("EURUSD".to_string(), new_volume * 10.0, 15.0, 0.0, "".to_string()).unwrap();
             }
         }
     }

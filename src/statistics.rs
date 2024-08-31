@@ -64,12 +64,11 @@ impl StatisticsServer {
                 if (log.profit - prev_log.profit).abs() >= threshold {
                     // 盈亏变化超过阈值，存储日志
                     wtr.serialize(&log).unwrap();
-                    previous_log = Some(log);
                 }
             } else {
                 // 第一个日志，直接存储
                 wtr.serialize(&log).unwrap();
-                previous_log = Some(log);
+                wtr.flush().unwrap();
             }
         }
 

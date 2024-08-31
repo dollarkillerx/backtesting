@@ -40,6 +40,9 @@ impl Manager {
         println!("Starting backtesting...");
         while let Ok(tick) = self.tick_channel.recv() {
             if self.broker.get_balance() <= 0.0 || self.broker.get_close_broker() {
+                println!("Broker closed.");
+                println!("Final balance: {}", self.broker.get_balance());
+                println!("Get close broker: {}", self.broker.get_close_broker());
                 break;
             }
             self.broker.on_tick(tick.clone());

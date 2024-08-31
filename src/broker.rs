@@ -93,7 +93,9 @@ impl Broker {
     ) -> Result<u64, Box<dyn std::error::Error>> {
         // 计算保证金是否足够
         let margin = (100000.0 * volume) / self.lever as f64;
-        if self.balance - 50.0 <= margin {
+        if self.balance + self.profit - 50.0 <= margin {
+            println!("{} {} {} {} 保证金不足", self.balance,self.profit, margin,volume);
+            println!("{:?}",self.positions);
             return Err(Box::new(BrokerError::InsufficientMargin));
         }
 
