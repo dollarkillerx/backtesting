@@ -1,0 +1,15 @@
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "*"
+windows = { version = "*", features = [
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemServices",
+] }
+windows-ez-overlay = { git = "https://github.com/jerryshell/windows-ez-overlay.git" }
+
+minifb = "0.27.0"
+winapi = { version = "0.3", features = ["winuser"] }
